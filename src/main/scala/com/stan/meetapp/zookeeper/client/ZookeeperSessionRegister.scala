@@ -13,37 +13,29 @@ import org.apache.zookeeper.WatchedEvent
 import org.apache.zookeeper.Watcher
 import org.apache.zookeeper.data.Stat
 import akka.actor.Extension
+import org.apache.zookeeper.AsyncCallback.StringCallback
 
 /**
  * @author Stanislav Zhurich
  */
-class ZookeeperSessionRegister private[client](url:String) extends SessionRegister[ZookeeperSession] 
+class ZookeeperSessionRegister private[client](url:String, seedPath:String) extends SessionRegister[ZookeeperSession] 
     with Logging with Extension{
   
-  val envVariable = "NODE_ADDRESS"
-  val path = "/seed"
+  val pathName = "/seed"
   
-  override val session = ZookeeperSession(url, 10000, watcher, false)
+  override val session = ZookeeperSession(url, 10000, null, false)
   
-  override lazy val address = {
-    val address = System.getenv(envVariable) 
-    if(address != null){
-      address
-    }else{
-      java.net.InetAddress.getLocalHost().getHostAddress
-    }
+  override def registerSeedAsync(callback:StringCallback):Unit = {
+    session map {case s => {
+      s.runForMasterAsync(pathName, seedPath, callback)
+    }}
   }
-  
-  def watcher = new Watcher(){
-    def process(event:WatchedEvent){}
-  }
-  
   
   override def registerSeed(implicit context:ExecutionContext):Future[Boolean] = {
    
     @tailrec
     def register():Boolean = {
-       session.flatMap { _.runForMaster(path, address) } match {
+       session.flatMap { _.runForMaster(pathName, seedPath) } match {
        case Success(path) =>  {
          log.info("succeedded to register seed node")
          true
@@ -68,25 +60,30 @@ class ZookeeperSessionRegister private[client](url:String) extends SessionRegist
     }
   }
   
-  override def getSeed:Option[Seed] = {
-    session.flatMap { _.getData(path) } match {
-      case Success((bytes, stat)) => Some(Seed("", 0))
+  override def getSeed(implicit context:ExecutionContext):Future[Seed] = {
+   
+    def seed:Seed = session.flatMap {  _.getData(pathName) } match {
+            case Success((bytes, stat)) if (new String(bytes, "utf-8") == seedPath) => Seed(seedPath)
     }
+    
+    Future(seed)
   }
  
  private[client] def checkSeed():Boolean = {
-   session.flatMap { _.getData(path) } match {
-      case Success((bytes, stat)) => new String(bytes, "utf-8") == address
+   session.flatMap { _.getData(pathName) } match {
+      case Success((bytes, stat)) => {
+        new String(bytes, "utf-8") == seedPath
+      }
       case Failure(e: NoNodeException) => {
          log.warn(s"zookeeper znode was not found for path [%path]")
          false
       }
       case Failure(e:ConnectionLossException) => {
-        log.error(s"connection was lost checking path [$path]", e)
+        log.error(s"connection was lost checking path [$pathName]", e)
         checkSeed()
       }     
       case Failure(e) => {
-        log.error(s"unknown exception checking path [$path]", e)
+        log.error(s"unknown exception checking path [$pathName]", e)
         false
       }
    }
@@ -95,7 +92,7 @@ class ZookeeperSessionRegister private[client](url:String) extends SessionRegist
 }
 
 object ZookeeperSessionRegister{
-  def apply(url:String) = new ZookeeperSessionRegister(url)
+  def apply(url:String, seedPath:String) = new ZookeeperSessionRegister(url, seedPath)
   implicit def bytesToString(bytes:Array[Byte]):String = new String(bytes, "utf-8")  
   implicit val executionContext = ExecutionContext.fromExecutor(Executors.newFixedThreadPool(1))
 }

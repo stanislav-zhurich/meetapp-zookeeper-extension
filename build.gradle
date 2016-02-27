@@ -24,6 +24,11 @@ tasks.withType(ScalaCompile) {
   scalaCompileOptions.useAnt = false
 }
 
+task scalaTest(dependsOn: ['testClasses'], type: JavaExec) {
+  main = 'org.scalatest.tools.Runner'
+  args = ['-R', 'build/classes/test', '-o']
+  classpath = sourceSets.test.runtimeClasspath
+}
 
 publishing {
     publications {

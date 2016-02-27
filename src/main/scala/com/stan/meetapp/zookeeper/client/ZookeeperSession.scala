@@ -6,6 +6,7 @@ import scala.util.Try
 import org.apache.zookeeper.CreateMode
 import org.apache.zookeeper.ZooDefs.Ids.OPEN_ACL_UNSAFE
 import org.apache.zookeeper.data.Stat
+import org.apache.zookeeper.AsyncCallback.StringCallback
 
 /**
  * @author Stanislav Zhurich
@@ -24,6 +25,11 @@ class ZookeeperSession private[client] (url:String,
   override def runForMaster(path:String, data:String):Try[String] = {
     info(s"trying to set master in $path")
     Try(zookeeper.create(path, data.getBytes, OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL));
+  }
+  
+  override def runForMasterAsync(path:String, data:String, callback:StringCallback){
+    info(s"trying to set master in $path")
+    zookeeper.create(path, data.getBytes, OPEN_ACL_UNSAFE, CreateMode.EPHEMERAL, callback, new Object())
   }
   
   override def getData  [A <: Any] (path:String)(implicit converter: Array[Byte] => A):Try[Tuple2[A, Stat]] = {
